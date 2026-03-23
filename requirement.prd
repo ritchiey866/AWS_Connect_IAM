@@ -1,0 +1,126 @@
+# Product Requirements Document (PRD)
+
+## Project Title
+AWS Connect Data Sync API (FastAPI + IAM + DynamoDB)
+
+## 1. Purpose
+Build a Python FastAPI service that authenticates to AWS using IAM, reads Amazon Connect queue and contact information, persists data to DynamoDB, and provides demo data operations for development/testing.
+
+## 2. Background
+Customer support and operations teams need programmatic visibility into Amazon Connect resources and contact activity. A lightweight API service is required to:
+- expose queue/contact data,
+- sync normalized data into DynamoDB for downstream reporting,
+- support demo provisioning and cleanup in non-production environments.
+
+## 3. Goals
+- Use IAM-based AWS authentication only (no hardcoded credentials).
+- Expose API endpoints for queue and contact retrieval with filtering/pagination.
+- Persist queue and contact records in DynamoDB.
+- Provide demo seed and cleanup endpoints for Connect test resources.
+- Provide maintainable, testable codebase with baseline automated API tests.
+
+## 4. Non-Goals
+- Real-time contact event streaming (Kinesis CTR pipeline is out of scope).
+- Full BI/reporting dashboards.
+- Multi-tenant auth/RBAC for API consumers.
+- Frontend UI.
+
+## 5. Stakeholders
+- API Consumer: internal engineering/reporting services.
+- Cloud Operations: IAM policy and AWS environment owners.
+- QA/Developer: validates functionality in lower environments.
+
+## 6. Functional Requirements
+
+### FR-1: IAM Authentication
+- The service shall authenticate to AWS via boto3 default credential provider chain.
+- The service shall not require embedded static AWS access keys in source code.
+
+### FR-2: Connect Queue Retrieval
+- The service shall provide endpoint(s) to list Connect queues.
+- Queue endpoint shall support:
+  - limit and offset pagination,
+  - optional queue name substring filtering.
+
+### FR-3: Connect Contact Retrieval
+- The service shall retrieve contact details using Connect `DescribeContact` based on known contact IDs.
+- Contact endpoint shall support:
+  - limit and offset pagination,
+  - optional channel filter (VOICE/CHAT/TASK),
+  - optional initiated timestamp range (`from_date`, `to_date`, ISO-8601).
+
+### FR-4: Data Persistence
+- The service shall persist queue and contact snapshots in DynamoDB.
+- Records shall include entity type metadata and sync timestamp.
+- The service shall auto-create the DynamoDB table if it does not exist.
+
+### FR-5: Sync Operation
+- The service shall expose a sync endpoint that:
+  - reads current queues from Connect,
+  - reads known demo contact IDs,
+  - describes those contacts,
+  - persists queue and contact records to DynamoDB.
+
+### FR-6: Demo Data Management
+- The service shall expose a seed endpoint to:
+  - create/reuse demo queues with deterministic names,
+  - start a demo outbound voice contact,
+  - store contact marker IDs in DynamoDB.
+- The service shall expose a cleanup endpoint to:
+  - delete demo queues matching naming convention,
+  - delete demo contact markers.
+
+### FR-7: DynamoDB Query APIs
+- The service shall provide endpoints to query saved queue/contact records from DynamoDB.
+- Query API shall support cursor-style pagination via `start_sk` and return `next_sk`.
+
+## 7. Non-Functional Requirements
+- Python 3.10+ compatibility.
+- FastAPI-based OpenAPI/Swagger documentation.
+- Basic automated API tests runnable locally.
+- Clear operational documentation (setup, IAM permissions, execution).
+- Graceful error handling (HTTP 400 for AWS/client validation issues).
+
+## 8. API Scope (Current)
+- `GET /health`
+- `GET /connect/queues`
+- `GET /connect/contacts`
+- `POST /sync/connect-data`
+- `POST /demo/seed`
+- `DELETE /demo/cleanup`
+- `GET /data/queues`
+- `GET /data/contacts`
+
+## 9. Data Model (DynamoDB)
+- Table keys:
+  - Partition key: `pk`
+  - Sort key: `sk`
+- Entity partitions:
+  - `QUEUE` -> queue snapshots
+  - `CONTACT` -> contact snapshots
+  - `DEMO_CONTACT` -> marker IDs for contact lookup
+
+## 10. Assumptions
+- Amazon Connect instance already exists.
+- Required contact flow and phone numbers are configured for outbound contact demo.
+- IAM principal has required Connect and DynamoDB permissions.
+
+## 11. Risks and Constraints
+- Connect contact discoverability is limited without CTR/event stream; current model relies on marker IDs.
+- Demo queue deletion may fail if queue is referenced/in use.
+- Offset pagination on Connect resources loads in-memory list before slicing (acceptable for moderate volumes).
+
+## 12. Acceptance Criteria
+- Service runs locally and OpenAPI docs load.
+- Seed endpoint creates/reuses demo queues and records demo contact marker.
+- Sync endpoint persists queue/contact records to DynamoDB.
+- Query endpoints return persisted records with pagination metadata.
+- Cleanup endpoint removes demo resources/markers and reports any failures.
+- Automated test suite passes in local environment.
+
+## 13. Future Enhancements
+- Replace offset pagination with token-based pagination where available.
+- Add structured logging/metrics and tracing.
+- Introduce environment-specific configuration profiles.
+- Add RBAC/API key/JWT for API consumer authorization.
+- Integrate CTR stream ingestion for fuller contact history.
